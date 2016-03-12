@@ -1,6 +1,3 @@
--- DB host: 46.101.97.44
-
-
 -- Setup a database only for the procedures, so we later do not need to worry in which db they are etc...
 DROP DATABASE IF EXISTS __school_migration_procedures__;
 CREATE DATABASE __school_migration_procedures__;
