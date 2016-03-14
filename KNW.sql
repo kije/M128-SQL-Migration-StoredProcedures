@@ -7,7 +7,7 @@ USE __school_migration_procedures__;
 -- procedures
 DELIMITER //
 
-# helper procedure for calling dynamic sql queries
+-- helper procedure for calling dynamic sql queries
 DROP PROCEDURE IF EXISTS __school_migration_procedures__.eval_sql//
 CREATE PROCEDURE __school_migration_procedures__.eval_sql(IN sql_stmt TEXT)
 DETERMINISTIC
@@ -20,9 +20,10 @@ DETERMINISTIC
   END //
 
 
-# clean up data (to ensure referential integrity)
+
+-- clean up data (to ensure referential integrity)
 DROP PROCEDURE IF EXISTS __school_migration_procedures__.cleanup_old_data//
-CREATE PROCEDURE __school_migration_procedures__.cleanup_old_data()
+CREATE PROCEDURE __school_migration_procedures__.cleanup_old_data(OUT had_error BOOLEAN)
 DETERMINISTIC
   BEGIN
     -- vars
@@ -47,7 +48,15 @@ DETERMINISTIC
 
     -- declare NOT FOUND handler
     DECLARE CONTINUE HANDLER
-    FOR NOT FOUND SET finished = TRUE;
+      FOR NOT FOUND SET finished = TRUE;
+
+    -- transaction error handler
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION, SQLWARNING
+        BEGIN
+            ROLLBACK;
+            SET had_error = TRUE;
+            -- todo leave the proc
+        END;
 
     -- tmp table for mapping
     CREATE TEMPORARY TABLE IF NOT EXISTS __school_migration_procedures__.tmp_foreign_key_mapping (
@@ -72,6 +81,7 @@ DETERMINISTIC
     -- clean data
     OPEN get_mapping_cursor;
 
+    START TRANSACTION;
     clean_loop: LOOP
       FETCH get_mapping_cursor
       INTO from_tablename, from_column_name, from_id_column_name, to_tablename, to_column_name, null_allowed;
@@ -99,12 +109,16 @@ DETERMINISTIC
 
     END LOOP;
 
+    COMMIT;
+
     DROP TEMPORARY TABLE __school_migration_procedures__.tmp_foreign_key_mapping;
+
+    SET had_error = FALSE;
   END //
 
-# copy database
+-- copy database
 DROP PROCEDURE IF EXISTS __school_migration_procedures__.copy_database//
-CREATE PROCEDURE __school_migration_procedures__.copy_database()
+CREATE PROCEDURE __school_migration_procedures__.copy_database(OUT had_error BOOLEAN)
 DETERMINISTIC
   BEGIN
     -- vars
@@ -116,6 +130,14 @@ DETERMINISTIC
       SELECT `table_name`
       FROM `information_schema`.`tables`
       WHERE `table_schema` = 'schoolinfo1282016';
+
+    -- transaction error handler
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION, SQLWARNING
+        BEGIN
+            ROLLBACK;
+            SET had_error = TRUE;
+            -- todo leave the proc
+        END;
 
     -- declare NOT FOUND handler
     DECLARE CONTINUE HANDLER
@@ -167,10 +189,11 @@ DETERMINISTIC
 
       CALL __school_migration_procedures__.eval_sql(@sql);
 
-      -- todo transaction!!!
+
+      -- todo transaction
       -- copy data
       SET @sql = CONCAT(
-          'INSERT INTO ',
+          'INSERT INTO xy',
           'schoolinfo_neu', -- new database
           '.',
           tablename,
@@ -182,14 +205,17 @@ DETERMINISTIC
 
       CALL __school_migration_procedures__.eval_sql(@sql);
 
+
     END LOOP;
 
     CLOSE get_old_tables_cursor;
+
+    SET had_error = FALSE;
   END //
 
-# copy database
+-- copy database
 DROP PROCEDURE IF EXISTS __school_migration_procedures__.add_auto_increment//
-CREATE PROCEDURE __school_migration_procedures__.add_auto_increment()
+CREATE PROCEDURE __school_migration_procedures__.add_auto_increment(OUT had_error BOOLEAN)
 DETERMINISTIC
   BEGIN
     -- vars
@@ -204,6 +230,14 @@ DETERMINISTIC
     -- declare NOT FOUND handler
     DECLARE CONTINUE HANDLER
     FOR NOT FOUND SET finished = TRUE;
+
+    -- transaction error handler
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION, SQLWARNING
+        BEGIN
+            ROLLBACK;
+            SET had_error = TRUE;
+            -- todo leave the proc
+        END;
 
     OPEN get_new_tables_cursor;
 
@@ -259,13 +293,24 @@ DETERMINISTIC
     END LOOP;
 
     CLOSE get_new_tables_cursor;
+
+    SET had_error = FALSE;
   END //
 
-# migrate db structure
+-- migrate db structure
 DROP PROCEDURE IF EXISTS __school_migration_procedures__.migrate_schema//
-CREATE PROCEDURE __school_migration_procedures__.migrate_schema()
+CREATE PROCEDURE __school_migration_procedures__.migrate_schema(OUT had_error BOOLEAN)
 DETERMINISTIC
   BEGIN
+
+    -- transaction error handler
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION, SQLWARNING
+        BEGIN
+            ROLLBACK;
+            SET had_error = TRUE;
+            -- todo leave the proc
+        END;
+
     -- copy db
     CALL `__school_migration_procedures__`.copy_database();
 
@@ -359,32 +404,33 @@ DETERMINISTIC
     -- add FOREIGN KEYS
     -- foreign keys for table note(schueler_id,schueler_id)
     ALTER TABLE schoolinfo_neu.note
-    ADD CONSTRAINT note_schueler_id FOREIGN KEY (schueler_id) REFERENCES schueler (id)
+    ADD CONSTRAINT fk_note_schueler_id FOREIGN KEY (schueler_id) REFERENCES schueler (id)
       ON UPDATE CASCADE
       ON DELETE CASCADE,
     -- unfortunately, the following foreign key constraint is not possible without modifying (deleting) data
-    ADD CONSTRAINT note_modul_id FOREIGN KEY (modul_id) REFERENCES modul (id)
+    ADD CONSTRAINT fk_note_modul_id FOREIGN KEY (modul_id) REFERENCES modul (id)
       ON UPDATE CASCADE
       ON DELETE CASCADE;
 
     -- foreign key for table schueler(lehrbetrieb_id)
     ALTER TABLE schoolinfo_neu.schueler
-    ADD CONSTRAINT schueler_richtung_id FOREIGN KEY (richtung_id) REFERENCES richtung (id)
+    ADD CONSTRAINT fk_schueler_richtung_id FOREIGN KEY (richtung_id) REFERENCES richtung (id)
       ON UPDATE CASCADE
       ON DELETE RESTRICT, -- richtung can only be deleted, if there are no more linked schueler
-    ADD CONSTRAINT schueler_klasse_id FOREIGN KEY (klasse_id) REFERENCES klasse (id)
+    ADD CONSTRAINT fk_schueler_klasse_id FOREIGN KEY (klasse_id) REFERENCES klasse (id)
       ON UPDATE CASCADE
       ON DELETE RESTRICT, -- klasse can only be deleted, if there are no more linked schueler
     -- unfortunately, the following foreign key constraint is not possible without modifying (deleting) data
-    ADD CONSTRAINT schueler_lehrbetrieb_id FOREIGN KEY (lehrbetrieb_id) REFERENCES lehrbetrieb (id)
+    ADD CONSTRAINT fk_schueler_lehrbetrieb_id FOREIGN KEY (lehrbetrieb_id) REFERENCES lehrbetrieb (id)
       ON UPDATE CASCADE
       ON DELETE RESTRICT; -- lehrbetrieb can only be deleted, if there are no more linked schueler
 
 
     -- add auto increment (this needs to be after adding foreign keys)
     CALL `__school_migration_procedures__`.add_auto_increment();
-  END //
 
+    SET had_error = FALSE;
+  END //
 
 DELIMITER ;
 
