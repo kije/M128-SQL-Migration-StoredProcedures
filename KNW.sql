@@ -7,6 +7,8 @@ USE __school_migration_procedures__;
 -- procedures
 DELIMITER //
 
+-- ------------------------------------------------------------------------------------------------------------
+
 -- helper procedure for calling dynamic sql queries
 DROP PROCEDURE IF EXISTS __school_migration_procedures__.eval_sql//
 CREATE PROCEDURE __school_migration_procedures__.eval_sql(IN sql_stmt TEXT)
@@ -23,7 +25,7 @@ DETERMINISTIC
 
 -- clean up data (to ensure referential integrity)
 DROP PROCEDURE IF EXISTS __school_migration_procedures__.cleanup_old_data//
-CREATE PROCEDURE __school_migration_procedures__.cleanup_old_data(OUT had_error BOOLEAN)
+CREATE PROCEDURE __school_migration_procedures__.cleanup_old_data()
 DETERMINISTIC
   BEGIN
     -- vars
@@ -50,13 +52,6 @@ DETERMINISTIC
     DECLARE CONTINUE HANDLER
       FOR NOT FOUND SET finished = TRUE;
 
-    -- transaction error handler
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION, SQLWARNING
-        BEGIN
-            ROLLBACK;
-            SET had_error = TRUE;
-            -- todo leave the proc
-        END;
 
     -- tmp table for mapping
     CREATE TEMPORARY TABLE IF NOT EXISTS __school_migration_procedures__.tmp_foreign_key_mapping (
@@ -113,12 +108,12 @@ DETERMINISTIC
 
     DROP TEMPORARY TABLE __school_migration_procedures__.tmp_foreign_key_mapping;
 
-    SET had_error = FALSE;
+
   END //
 
 -- copy database
 DROP PROCEDURE IF EXISTS __school_migration_procedures__.copy_database//
-CREATE PROCEDURE __school_migration_procedures__.copy_database(OUT had_error BOOLEAN)
+CREATE PROCEDURE __school_migration_procedures__.copy_database()
 DETERMINISTIC
   BEGIN
     -- vars
@@ -131,13 +126,6 @@ DETERMINISTIC
       FROM `information_schema`.`tables`
       WHERE `table_schema` = 'schoolinfo1282016';
 
-    -- transaction error handler
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION, SQLWARNING
-        BEGIN
-            ROLLBACK;
-            SET had_error = TRUE;
-            -- todo leave the proc
-        END;
 
     -- declare NOT FOUND handler
     DECLARE CONTINUE HANDLER
@@ -193,7 +181,7 @@ DETERMINISTIC
       -- todo transaction
       -- copy data
       SET @sql = CONCAT(
-          'INSERT INTO xy',
+          'INSERT INTO ',
           'schoolinfo_neu', -- new database
           '.',
           tablename,
@@ -210,12 +198,12 @@ DETERMINISTIC
 
     CLOSE get_old_tables_cursor;
 
-    SET had_error = FALSE;
+
   END //
 
 -- copy database
 DROP PROCEDURE IF EXISTS __school_migration_procedures__.add_auto_increment//
-CREATE PROCEDURE __school_migration_procedures__.add_auto_increment(OUT had_error BOOLEAN)
+CREATE PROCEDURE __school_migration_procedures__.add_auto_increment()
 DETERMINISTIC
   BEGIN
     -- vars
@@ -231,13 +219,6 @@ DETERMINISTIC
     DECLARE CONTINUE HANDLER
     FOR NOT FOUND SET finished = TRUE;
 
-    -- transaction error handler
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION, SQLWARNING
-        BEGIN
-            ROLLBACK;
-            SET had_error = TRUE;
-            -- todo leave the proc
-        END;
 
     OPEN get_new_tables_cursor;
 
@@ -294,27 +275,26 @@ DETERMINISTIC
 
     CLOSE get_new_tables_cursor;
 
-    SET had_error = FALSE;
+
   END //
 
 -- migrate db structure
 DROP PROCEDURE IF EXISTS __school_migration_procedures__.migrate_schema//
-CREATE PROCEDURE __school_migration_procedures__.migrate_schema(OUT had_error BOOLEAN)
+CREATE PROCEDURE __school_migration_procedures__.migrate_schema()
 DETERMINISTIC
   BEGIN
 
     -- transaction error handler
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION, SQLWARNING
+   /* DECLARE EXIT HANDLER FOR SQLEXCEPTION, SQLWARNING
         BEGIN
             ROLLBACK;
             SET had_error = TRUE;
             -- todo leave the proc
-        END;
+        END;*/
 
     -- copy db
     CALL `__school_migration_procedures__`.copy_database();
 
-    -- todo rearange columns
     -- make selective changes to columns on individual tables
     -- table klasse
     ALTER TABLE schoolinfo_neu.klasse
@@ -428,11 +408,16 @@ DETERMINISTIC
 
     -- add auto increment (this needs to be after adding foreign keys)
     CALL `__school_migration_procedures__`.add_auto_increment();
-
-    SET had_error = FALSE;
   END //
 
+
+
+
+
+
+-- ------------------------------------------------------------------------------------------------------------
 DELIMITER ;
+
 
 CALL __school_migration_procedures__.migrate_schema();
 
