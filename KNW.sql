@@ -9,6 +9,8 @@ DELIMITER //
 
 -- ------------------------------------------------------------------------------------------------------------
 
+-- ------- Project 1
+
 -- helper procedure for calling dynamic sql queries
 DROP PROCEDURE IF EXISTS __school_migration_procedures__.eval_sql//
 CREATE PROCEDURE __school_migration_procedures__.eval_sql(IN sql_stmt TEXT)
@@ -298,10 +300,10 @@ DETERMINISTIC
     -- make selective changes to columns on individual tables
     -- table klasse
     ALTER TABLE schoolinfo_neu.klasse
-    CHANGE COLUMN idklasse id INT UNSIGNED,
-    CHANGE `name` short_name VARCHAR(10) NOT NULL,
-    CHANGE realname `name` VARCHAR(45) NULL
-    AFTER short_name;
+      CHANGE COLUMN idklasse id INT UNSIGNED,
+      CHANGE `name` short_name VARCHAR(10) NOT NULL,
+      CHANGE realname `name` VARCHAR(45) NULL
+      AFTER short_name;
 
     -- table lehrbetriebe -> lehrbetrieb
     RENAME TABLE schoolinfo_neu.lehrbetriebe TO schoolinfo_neu.lehrbetrieb;
@@ -327,6 +329,7 @@ DETERMINISTIC
     CHANGE COLUMN klasse klasse_id INT UNSIGNED NOT NULL,
     MODIFY COLUMN `name` VARCHAR(50) NOT NULL,
     MODIFY COLUMN `vorname` VARCHAR(50) NOT NULL,
+    MODIFY COLUMN `plz` VARCHAR(10),
     DROP INDEX Lern_id,
     DROP INDEX vorname,
     DROP INDEX `name`;
@@ -412,7 +415,83 @@ DETERMINISTIC
 
 
 
+-- ------- Project 2
 
+-- migrate db structure
+DROP PROCEDURE IF EXISTS __school_migration_procedures__.normalize_address_data//
+CREATE PROCEDURE __school_migration_procedures__.normalize_address_data()
+DETERMINISTIC
+  BEGIN
+    -- todo transaction
+
+    -- vars
+    DECLARE plz VARCHAR(10) DEFAULT '';
+    DECLARE ort VARCHAR(50) DEFAULT '';
+    DECLARE finished BOOLEAN DEFAULT FALSE;
+
+    -- cursor
+    /*DECLARE get_cities_cursor CURSOR FOR
+      SELECT DISTINCT
+        TRIM(TRIM(BOTH '\r' FROM TRIM(BOTH '\n' FROM plz))) as plz, -- remove newline and spacing characters
+        TRIM(TRIM(BOTH '\r' FROM TRIM(BOTH '\n' FROM ort))) as ort -- remove newline and spacing characters
+      FROM  (
+        SELECT
+          plz,
+          ort
+        FROM `schoolinfo_neu`.`schueler` as a
+        UNION
+        SELECT
+          plz,
+          ort
+        FROM `schoolinfo_neu`.`lehrbetrieb` as b ORDER BY plz ASC
+      ) as c
+      WHERE
+        (plz IS NOT NULL AND ort IS NOT NULL) AND
+        (plz NOT REGEXP '^[:blank:]*$' AND ort NOT REGEXP '^[:blank:]*$') -- filter "empty" results
+    ;*/
+
+
+    -- declare NOT FOUND handler
+    DECLARE CONTINUE HANDLER
+      FOR NOT FOUND SET finished = TRUE;
+
+    -- create city table
+    DROP TABLE IF EXISTS schoolinfo_neu.ort;
+    CREATE TABLE IF NOT EXISTS schoolinfo_neu.ort (
+      id BIGINT UNSIGNED AUTO_INCREMENT,
+      plz VARCHAR(10) NOT NULL,
+      ort VARCHAR(50) NOT NULL,
+
+      -- UNIQUE INDEX `unq_plz_ort` (plz,ort),
+      PRIMARY KEY (id)
+    ) ENGINE=InnoDB CHAR SET='utf8';
+
+
+    -- add ort_id column to tables
+    ALTER TABLE `schoolinfo_neu`.`schueler` ADD COLUMN `ort_id` BIGINT UNSIGNED NULL AFTER ort;
+    ALTER TABLE `schoolinfo_neu`.`lehrbetrieb` ADD COLUMN `ort_id` BIGINT UNSIGNED NULL AFTER ort;
+
+   -- insert data into tables
+    INSERT INTO schoolinfo_neu.ort (plz, ort) (
+      SELECT DISTINCT
+        TRIM(TRIM(BOTH '\r' FROM TRIM(BOTH '\n' FROM plz))) as plz, -- remove newline and spacing characters
+        TRIM(TRIM(BOTH '\r' FROM TRIM(BOTH '\n' FROM ort))) as ort -- remove newline and spacing characters
+      FROM  (
+        SELECT
+          plz,
+          ort
+        FROM `schoolinfo_neu`.`schueler` as a
+        UNION
+        SELECT
+          plz,
+          ort
+        FROM `schoolinfo_neu`.`lehrbetrieb` as b ORDER BY plz ASC
+      ) as c
+      WHERE
+        (plz IS NOT NULL AND ort IS NOT NULL) AND
+        (plz NOT REGEXP '^[:blank:]*$' AND ort NOT REGEXP '^[:blank:]*$') -- filter "empty" results
+    );
+  END //
 
 
 -- ------------------------------------------------------------------------------------------------------------
@@ -420,4 +499,5 @@ DELIMITER ;
 
 
 CALL __school_migration_procedures__.migrate_schema();
+CALL __school_migration_procedures__.normalize_address_data();
 
