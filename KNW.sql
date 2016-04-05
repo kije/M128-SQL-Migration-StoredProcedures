@@ -429,27 +429,6 @@ DETERMINISTIC
     DECLARE ort VARCHAR(50) DEFAULT '';
     DECLARE finished BOOLEAN DEFAULT FALSE;
 
-    -- cursor
-    /*DECLARE get_cities_cursor CURSOR FOR
-      SELECT DISTINCT
-        TRIM(TRIM(BOTH '\r' FROM TRIM(BOTH '\n' FROM plz))) as plz, -- remove newline and spacing characters
-        TRIM(TRIM(BOTH '\r' FROM TRIM(BOTH '\n' FROM ort))) as ort -- remove newline and spacing characters
-      FROM  (
-        SELECT
-          plz,
-          ort
-        FROM `schoolinfo_neu`.`schueler` as a
-        UNION
-        SELECT
-          plz,
-          ort
-        FROM `schoolinfo_neu`.`lehrbetrieb` as b ORDER BY plz ASC
-      ) as c
-      WHERE
-        (plz IS NOT NULL AND ort IS NOT NULL) AND
-        (plz NOT REGEXP '^[:blank:]*$' AND ort NOT REGEXP '^[:blank:]*$') -- filter "empty" results
-    ;*/
-
 
     -- declare NOT FOUND handler
     DECLARE CONTINUE HANDLER
@@ -489,7 +468,7 @@ DETERMINISTIC
       ) as c
       WHERE
         (plz IS NOT NULL AND ort IS NOT NULL) AND
-        (plz NOT REGEXP '^[:blank:]*$' AND ort NOT REGEXP '^[:blank:]*$') -- filter "empty" results
+        (plz NOT REGEXP '^[[:blank:]]*$' AND ort NOT REGEXP '^[[:blank:]]*$') -- filter "empty" results
     );
   END //
 
