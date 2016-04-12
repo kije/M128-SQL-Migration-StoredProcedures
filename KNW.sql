@@ -1,3 +1,5 @@
+SET NAMES utf8;
+
 -- Setup a database only for the procedures, so we later do not need to worry in which db they are etc...
 DROP DATABASE IF EXISTS __school_migration_procedures__;
 CREATE DATABASE __school_migration_procedures__;
@@ -106,6 +108,8 @@ DETERMINISTIC
 
     END LOOP;
 
+     CLOSE get_mapping_cursor;
+
     COMMIT;
 
     DROP TEMPORARY TABLE __school_migration_procedures__.tmp_foreign_key_mapping;
@@ -174,7 +178,7 @@ DETERMINISTIC
           '.',
           tablename,
           ' ENGINE=InnoDB, '
-          'CONVERT TO CHARACTER SET utf8 COLLATE utf8_unicode_ci'
+          'CONVERT TO CHARACTER SET utf8 COLLATE utf8_general_ci'
       );
 
       CALL __school_migration_procedures__.eval_sql(@sql);
@@ -424,16 +428,6 @@ DETERMINISTIC
   BEGIN
     -- todo transaction
 
-    -- vars
-    DECLARE plz VARCHAR(10) DEFAULT '';
-    DECLARE ort VARCHAR(50) DEFAULT '';
-    DECLARE finished BOOLEAN DEFAULT FALSE;
-
-
-    -- declare NOT FOUND handler
-    DECLARE CONTINUE HANDLER
-      FOR NOT FOUND SET finished = TRUE;
-
     -- create city table
     DROP TABLE IF EXISTS schoolinfo_neu.ort;
     CREATE TABLE IF NOT EXISTS schoolinfo_neu.ort (
@@ -443,7 +437,7 @@ DETERMINISTIC
 
       -- UNIQUE INDEX `unq_plz_ort` (plz,ort),
       PRIMARY KEY (id)
-    ) ENGINE=InnoDB CHAR SET='utf8';
+    ) ENGINE=InnoDB CHAR SET='utf8' ;
 
 
     -- add ort_id column to tables
@@ -453,25 +447,45 @@ DETERMINISTIC
    -- insert data into tables
     INSERT INTO schoolinfo_neu.ort (plz, ort) (
       SELECT DISTINCT
-        TRIM(TRIM(BOTH '\r' FROM TRIM(BOTH '\n' FROM plz))) as plz, -- remove newline and spacing characters
-        TRIM(TRIM(BOTH '\r' FROM TRIM(BOTH '\n' FROM ort))) as ort -- remove newline and spacing characters
-      FROM  (
-        SELECT
-          plz,
-          ort
-        FROM `schoolinfo_neu`.`schueler` as a
-        UNION
-        SELECT
-          plz,
-          ort
-        FROM `schoolinfo_neu`.`lehrbetrieb` as b ORDER BY plz ASC
-      ) as c
+        TRIM(TRIM(BOTH '\r' FROM TRIM(BOTH '\n' FROM plz))) AS plz,
+        -- remove newline and spacing characters
+        TRIM(TRIM(BOTH '\r' FROM TRIM(BOTH '\n' FROM ort))) AS ort -- remove newline and spacing characters
+      FROM (
+             SELECT
+               plz,
+               ort
+             FROM `schoolinfo_neu`.`schueler` AS a
+             UNION ALL
+             SELECT
+               plz,
+               ort
+             FROM `schoolinfo_neu`.`lehrbetrieb` AS b
+             ORDER BY plz ASC
+           ) AS c
       WHERE
         (plz IS NOT NULL AND ort IS NOT NULL) AND
         (plz NOT REGEXP '^[[:blank:]]*$' AND ort NOT REGEXP '^[[:blank:]]*$') -- filter "empty" results
     );
-  END //
 
+    -- update data in tables
+    UPDATE `schoolinfo_neu`.`schueler` AS s SET ort_id = (
+      SELECT id FROM schoolinfo_neu.ort AS o
+      WHERE
+        o.plz LIKE CONCAT('%', s.plz, '%')
+      LIMIT 1
+    );
+    
+    UPDATE `schoolinfo_neu`.`lehrbetrieb` AS l SET ort_id = (
+      SELECT id FROM schoolinfo_neu.ort AS o
+      WHERE
+        o.plz LIKE CONCAT('%', l.plz, '%')
+      LIMIT 1
+    );
+    
+    -- drop columns in table
+    ALTER TABLE `schoolinfo_neu`.`schueler` DROP COLUMN plz, DROP COLUMN ort;
+    ALTER TABLE `schoolinfo_neu`.`lehrbetrieb` DROP COLUMN plz, DROP COLUMN ort;
+  END //
 
 -- ------------------------------------------------------------------------------------------------------------
 DELIMITER ;
@@ -479,4 +493,5 @@ DELIMITER ;
 
 CALL __school_migration_procedures__.migrate_schema();
 CALL __school_migration_procedures__.normalize_address_data();
+
 
